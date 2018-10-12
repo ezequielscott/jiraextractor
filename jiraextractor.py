@@ -64,28 +64,43 @@ def connect(url, username='', password=''):
 
 
 def parse_issues(issues):
-    # Parse all the issues into a dataframe
+    """
+    This function parses a list of issues (JIRA API objects) into a pandas dataframe
+    :param issues: a list of issues objects
+    :return: a panda dataframe
+    """
 
     logger.info('Parsing issues ...')
 
     df = pd.DataFrame()
     for issue in issues:
-        df = df.append(issue.raw['fields'], ignore_index=True)
+        d = issue.raw['fields']
+        d['key'] = issue.key
+        df = df.append(d, ignore_index=True)
 
     return df
 
 
 def get_issues(jira, project, startdate='', enddate=''):
+    """
+    Get the issues from JIRA
+    :param jira: connection object for the JIRA instance
+    :param project: name of the project
+    :param startdate: start date of the period we want to extract
+    :param enddate: date date of the period we want to extract
+    :return: a list of issue objects (JIRA API)
+    """
     block_size = 1000
     block_num = 0
     all_issues = []
+
+    jql = 'project={0}'.format(project)
+    if startdate and enddate:
+        jql = 'project={0} and created >= {1} and created <= {2}'.format(project, startdate, enddate)
+
     while True:
         start_idx = block_num * block_size
         logger.info('Getting issues from %d to %d ...' % (start_idx + 1, start_idx + block_size))
-
-        jql = 'project={0}'.format(project)
-        if startdate and enddate:
-            jql = 'project={0} and created >= {1} and created <= {2}'.format(project, startdate, enddate)
 
         issues = jira.search_issues(jql, start_idx, block_size)
         if len(issues) == 0:
