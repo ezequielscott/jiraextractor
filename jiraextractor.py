@@ -2,7 +2,7 @@
 """
 SYNOPSIS
 
-    jiraextractor -s JIRA_URL --project PROJECT_NAME [-u,--username] [-p, --password] [-t]
+    jiraextractor -s JIRA_URL --project PROJECT_NAME [-u,--username] [-p, --password] [--issuefile] [--changelogfile] [--startdate] [--enddate]
 
 DESCRIPTION
 
@@ -136,18 +136,20 @@ if __name__ == '__main__':
         parser.add_argument("-p", "--password", dest="PASSWORD", help="JIRA password", default='')
         parser.add_argument("-s", "--server", dest="SERVER", required=True, help="URL address to the server")
         parser.add_argument("--project", dest="PROJECT", required=True, help="Name of the JIRA project")
-		
-		parser.add_argument("--issuesfile", dest="FILENAME_ISSUES", required=False, default='issues.csv', help="Name of the JIRA project")
-		parser.add_argument("--changelogfile", dest="FILENAME_CHANGELOG", required=False, default='changelog.csv', help="Name of the JIRA project")
 
-        parser.add_argument("-t", help="Use this option if you want to retrieve workloads from Tempo")
+        parser.add_argument("--issuefile", dest="FILENAME_ISSUES", required=False, default='issues.csv', help="Name of file where the issues will be stored. Default 'issues.csv'")
+        parser.add_argument("--changelogfile", dest="FILENAME_CHANGELOG", required=False, default='changelog.csv', help="Name of file where the changelog will be stored. Default 'changelog.csv'")
+
+        #parser.add_argument("-t", help="Use this option if you want to retrieve workloads from Tempo")
 
         parser.add_argument("--startdate",
                             help="The start date (creation date) - format YYYY-MM-DD",
+                            required=False,
                             dest="STARTDATE")
 
         parser.add_argument("--enddate",
                             help="The end date (creation date) - format YYYY-MM-DD",
+                            required=False,
                             dest="ENDDATE")
 
         args = parser.parse_args()
