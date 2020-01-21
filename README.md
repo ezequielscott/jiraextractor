@@ -15,6 +15,6 @@ The JIRA Python API library eases the use of the JIRA REST API from Python and i
 
 `jiraextractor -s JIRA_URL --project PROJECT_NAME [-u,--username] [-p, --password] [--issuefile] [--changelogfile] [--startdate] [--enddate] [--anonymize=False]`
 
-This example extracts all the issues and the changelog of the Spring project XD from 01-Jan-2016 to 01-Feb-2016
+This example extracts all the issues and the changelog of the Spring project XD from 18-Feb-2013 to 20-Feb-2013
 
 `python jiraextractor.py -s https://jira.spring.io --project XD --startdate 2013-02-18 --enddate 2013-02-20`
