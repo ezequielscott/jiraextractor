@@ -126,17 +126,19 @@ def get_issues(jira, project, startdate='', enddate=''):
 
     while True:
         start_idx = block_num * block_size
-        logger.info('Getting issues from %d to %d ...' % (start_idx + 1, start_idx + block_size))
+        logger.info('Searching for issues from %d to %d ...' % (start_idx + 1, start_idx + block_size))
 
         issues = jira.search_issues(jql, start_idx, block_size, expand='changelog')
         if len(issues) == 0:
             # Retrieve issues until there are no more to come
+            logger.info('... no issues found')
             break
         block_num += 1
+        logger.info('... %d issues retrieved' % len(issues))
         for issue in issues:
             # logger.info('%s: %s' % (issue.key, issue.fields.summary))
             all_issues.append(issue)
-    logger.info('%d issues retrieved.' % len(all_issues))
+    logger.info('%d issues retrieved in total.' % len(all_issues))
     return all_issues
 
 def get_changelog(issues):
