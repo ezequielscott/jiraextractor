@@ -96,7 +96,7 @@ def parse_issues(issues):
                     'field': item.field,
                     'fieldtype': item.fieldtype,
                     'from': getattr(item, 'from'),
-                    # getattr() must be used since 'from' is a special word in python and it makes item.from don't work 
+                    # getattr() must be used since 'from' is a special word in python and it makes item.from don't work
                     'fromString': item.fromString,
                     'to': item.to,
                     'toString': item.toString
@@ -107,9 +107,28 @@ def parse_issues(issues):
     return df, changelog
 
 
-def get_issues(jira, project, startdate='', enddate=''):
+def get_issues(jira, project='', startdate='', enddate=''):
     """
     Get the issues from JIRA
+    :param jira: connection object for the JIRA instance
+    :param project: name of the project
+    :param startdate: start date of the period we want to extract
+    :param enddate: date date of the period we want to extract
+    :return: a list of issue objects (JIRA API)
+    """
+    all_issues = []
+
+    if project:
+        return get_issues_for_project(jira, project, startdate, enddate)
+    else:
+        for p in jira.projects():
+            all_issues.extend(get_issues_for_project(jira, p.key, startdate, enddate))
+
+    return all_issues
+
+def get_issues_for_project (jira, project, startdate='', enddate=''):
+    """
+    Get the issues from JIRA for the specific project name
     :param jira: connection object for the JIRA instance
     :param project: name of the project
     :param startdate: start date of the period we want to extract
@@ -120,9 +139,11 @@ def get_issues(jira, project, startdate='', enddate=''):
     block_num = 0
     all_issues = []
 
+    logger.info('Project name: %s' % (project))
+
     jql = 'project={0}'.format(project)
     if startdate and enddate:
-        jql = 'project={0} and created >= {1} and created <= {2}'.format(project, startdate, enddate)
+        jql = 'project=\'{0}\' and created >= {1} and created <= {2}'.format(project, startdate, enddate)
 
     while True:
         start_idx = block_num * block_size
@@ -206,7 +227,7 @@ def anonymize(df, changelog, fields_to_anonymize=["reporter", "creator", "assign
     for field in fields_to_anonymize:
         if field in df.columns:
             df[field] = df[field].map(jirauserkeys)
-    
+
     changelog['author'] = changelog['author'].map(jirauserkeys)
 
     return df, changelog
@@ -221,7 +242,7 @@ if __name__ == '__main__':
         parser.add_argument("-u", "--username", dest="USERNAME", help="JIRA username", default='')
         parser.add_argument("-p", "--password", dest="PASSWORD", help="JIRA password", default='')
         parser.add_argument("-s", "--server", dest="SERVER", required=True, help="URL address to the server")
-        parser.add_argument("--project", dest="PROJECT", required=True, help="Name of the JIRA project")
+        parser.add_argument("--project", dest="PROJECT", help="Name of the JIRA project", default='')
 
         parser.add_argument("--issuefile", dest="FILENAME_ISSUES", required=False, default='issues.csv', help="Name of file where the issues will be stored. Default 'issues.csv'")
         parser.add_argument("--changelogfile", dest="FILENAME_CHANGELOG", required=False, default='changelog.csv', help="Name of file where the changelog will be stored. Default 'changelog.csv'")
@@ -238,10 +259,10 @@ if __name__ == '__main__':
                             required=False,
                             dest="ENDDATE")
 
-        parser.add_argument("--anonymize", 
-                            dest="ANON", 
+        parser.add_argument("--anonymize",
+                            dest="ANON",
                             required=False,
-                            default='False', 
+                            default='False',
                             help="This flag (True or False) determines if the files should be anonymized or not. A list of stardard fields are considered for anonymization.")
 
         args = parser.parse_args()
@@ -253,7 +274,7 @@ if __name__ == '__main__':
 
         issues = get_issues(jira, args.PROJECT, args.STARTDATE, args.ENDDATE)
         df, changelog = parse_issues(issues)
-        
+
         # anonymize
         if args.ANON != 'False':
             logger.info("Anonymizing...")
