@@ -72,12 +72,15 @@ def parse_issues(issues):
     :return: two panda dataframes containing the issues and the changelog
     """
 
-    logger.info('Parsing issues ...')
+    start_time = time.time()
+    logger.info('Parsing %d issues ... ' % len(issues))
+    issues_len = len(issues)
+    print_progress_bar(0, issues_len, 'Progress:', 'Complete', 2, 50)
 
     df = pd.DataFrame()
     changelog = pd.DataFrame()
 
-    for issue in issues:
+    for i, issue in enumerate(issues):
         # get all the issue fields
         d = issue.raw['fields']
         d['key'] = issue.key
@@ -104,10 +107,14 @@ def parse_issues(issues):
 
                 changelog = changelog.append(d, ignore_index=True)
 
+        print_progress_bar(i + 1, issues_len, 'Progress:', 'Complete', 2, 50)
+
+    logger.info('Elapsed parsing time: {:.2f}s'.format(time.time() - start_time))
+
     return df, changelog
 
 
-def get_issues(jira, project='', startdate='', enddate=''):
+def get_issues(jira, project='', startdate='', enddate='', block_size=1000):
     """
     Get the issues from JIRA
     :param jira: connection object for the JIRA instance
@@ -119,14 +126,15 @@ def get_issues(jira, project='', startdate='', enddate=''):
     all_issues = []
 
     if project:
-        return get_issues_for_project(jira, project, startdate, enddate)
+        return get_issues_for_project(jira, project, startdate, enddate, block_size)
     else:
         for p in jira.projects():
             all_issues.extend(get_issues_for_project(jira, p.key, startdate, enddate))
 
     return all_issues
 
-def get_issues_for_project (jira, project, startdate='', enddate=''):
+
+def get_issues_for_project (jira, project, startdate='', enddate='', block_size=1000):
     """
     Get the issues from JIRA for the specific project name
     :param jira: connection object for the JIRA instance
@@ -135,7 +143,6 @@ def get_issues_for_project (jira, project, startdate='', enddate=''):
     :param enddate: date date of the period we want to extract
     :return: a list of issue objects (JIRA API)
     """
-    block_size = 1000
     block_num = 0
     all_issues = []
 
@@ -161,6 +168,7 @@ def get_issues_for_project (jira, project, startdate='', enddate=''):
             all_issues.append(issue)
     logger.info('%d issues retrieved in total.' % len(all_issues))
     return all_issues
+
 
 def get_changelog(issues):
     """
@@ -215,24 +223,49 @@ def anonymize(df, changelog, fields_to_anonymize=["reporter", "creator", "assign
     df['assignee'] = df['assignee'].apply(lambda x: np.nan if x is None else x['key'])
     df['reporter'] = df['reporter'].apply(lambda x: np.nan if x is None else x['key'])
 
-    jirausers = []
+    jira_users = []
     for field in fields_to_anonymize:
         if field in df.columns:
-            jirausers = jirausers + df[field].values.tolist()
+            jira_users = jira_users + df[field].values.tolist()
 
-    jirausers = pd.unique(jirausers)
+    jira_users = pd.unique(jira_users)
 
-    to_replace = [ 'U' + str(i+1) for i in range(len(jirausers)) ]
+    to_replace = [ 'U' + str(i+1) for i in range(len(jira_users)) ]
 
-    jirauserkeys = dict(zip(jirausers, to_replace))
+    jira_user_keys = dict(zip(jira_users, to_replace))
 
     for field in fields_to_anonymize:
         if field in df.columns:
-            df[field] = df[field].map(jirauserkeys)
+            df[field] = df[field].map(jira_user_keys)
 
-    changelog['author'] = changelog['author'].map(jirauserkeys)
+    changelog['author'] = changelog['author'].map(jira_user_keys)
 
     return df, changelog
+
+
+def print_progress_bar (iteration, total, prefix = '', suffix = '', decimals = 1, length = 100, fill = '█', print_end = "\r"):
+    """
+    Call in a loop to create terminal progress bar
+    @params:
+        iteration   - Required  : current iteration (Int)
+        total       - Required  : total iterations (Int)
+        prefix      - Optional  : prefix string (Str)
+        suffix      - Optional  : suffix string (Str)
+        decimals    - Optional  : positive number of decimals in percent complete (Int)
+        length      - Optional  : character length of bar (Int)
+        fill        - Optional  : bar fill character (Str)
+        print_end    - Optional  : end character (e.g. "\r", "\r\n") (Str)
+    """
+    if total < 1:
+        return
+
+    percent = ("{0:." + str(decimals) + "f}").format(100 * (iteration / float(total)))
+    filled_length = int(length * iteration // total)
+    bar = fill * filled_length + '-' * (length - filled_length)
+    print('\r%s |%s| %s%% %s' % (prefix, bar, percent, suffix), end = print_end)
+    # Print New Line on Complete
+    if iteration == total:
+        print()
 
 
 if __name__ == '__main__':
@@ -267,6 +300,13 @@ if __name__ == '__main__':
                             default='False',
                             help="This flag (True or False) determines if the files should be anonymized or not. A list of stardard fields are considered for anonymization.")
 
+        parser.add_argument("-b",
+                            "--blocksize",
+                            dest="BLOCK_SIZE",
+                            help="The size of a block (batch) of issues retrieved at once from JIRA",
+                            required=False,
+                            default=1000)
+
         args = parser.parse_args()
 
         # if len(args) < 1:
@@ -274,13 +314,17 @@ if __name__ == '__main__':
 
         jira = connect(args.SERVER, args.USERNAME, args.PASSWORD)
 
-        issues = get_issues(jira, args.PROJECT, args.STARTDATE, args.ENDDATE)
+        start_time = time.time()
+
+        issues = get_issues(jira, args.PROJECT, args.STARTDATE, args.ENDDATE, int(args.BLOCK_SIZE))
         df, changelog = parse_issues(issues)
 
         # anonymize
         if args.ANON != 'False':
             logger.info("Anonymizing...")
             df, changelog = anonymize(df, changelog)
+
+        logger.info('Total elapsed time: {:.2f}s'.format(time.time() - start_time))
 
         logger.info("Saving issues to file.")
         df.to_csv(args.FILENAME_ISSUES, encoding='utf-8', header=True, index=False, line_terminator="\n")
