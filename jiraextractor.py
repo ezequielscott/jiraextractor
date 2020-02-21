@@ -34,7 +34,7 @@ from jira import JIRA
 import pandas as pd
 import numpy as np
 import logging
-
+import json
 
 # from pexpect import run, spawn
 
@@ -45,7 +45,7 @@ def init_logger():
     logger = logging.getLogger()
     logger.setLevel(logging.INFO)
 
-    file_handler = logging.FileHandler("{0}/{1}.log".format('.', 'lhv'))
+    file_handler = logging.FileHandler("{0}/{1}.log".format('.', 'jiraextractor'))
     file_handler.setFormatter(log_formatter)
     logger.addHandler(file_handler)
 
@@ -61,9 +61,51 @@ def connect(url, username='', password=''):
         jira = JIRA(server=url, basic_auth=(username, password))
     else:
         jira = JIRA(url)
-
     return jira
 
+def parse_issues2(df):
+
+    logger.info('Parsing changelog...')
+    
+    df = pd.DataFrame(df)
+
+    # remove wrong lines
+    df = df[df['changelog']!='changelog']
+
+    df['ch'] = df['changelog'].apply(lambda x : x['histories'])
+
+    df['ch0'] = df['ch'].apply( lambda x : [ pd.io.json.json_normalize(e) for e in x ])
+
+    # concat attrs stored in a dictionary
+    def concat_attrs(lst, attrs):
+        if len(lst) != 0:
+            pdf = pd.concat(lst, sort=False)
+            for k in attrs:
+                pdf[k] = attrs[k]
+        else:
+            pdf = None
+        return pdf
+
+    df['ch1'] = df.apply(lambda x: concat_attrs(x['ch0'], {'key' : x['key']}), axis=1)
+
+    # first unwrap
+    df2 = pd.concat([df['ch1'][i] for i in df.index], ignore_index=True, sort=False)
+
+    # now do the same with the histories
+    df2['items_h'] = df2['items'].apply( lambda x : [ pd.io.json.json_normalize(e) for e in x ])
+
+    df2['items_h2'] = df2.apply(lambda x: concat_attrs(x['items_h'], {'key' : x['key'], 'created' : x['created'], 'author' : x['author.key']}), axis=1)
+
+    # second unwrap (it contains all the changelog)
+    changelog = pd.concat([df2['items_h2'][i] for i in df2.index], ignore_index=True, sort=False)
+
+    logger.info('Parsing issue list...')
+
+    df['fields2'] = df['fields'].apply( lambda e : pd.io.json.json_normalize(e))
+    issues = pd.concat([df['fields2'][i] for i in df.index], ignore_index=True, sort=False)
+    issues['key'] = df['key']
+    
+    return issues, changelog
 
 def parse_issues(issues):
     """
@@ -79,27 +121,28 @@ def parse_issues(issues):
 
     for issue in issues:
         # get all the issue fields
-        d = issue.raw['fields']
-        d['key'] = issue.key
+        d = issue['fields']
+        d['key'] = issue['key']
         df = df.append(d, ignore_index=True)
 
         # get all the entries in the changelog
-        ch = issue.changelog
+        ch = issue['changelog']
 
-        for history in ch.histories:
-            for item in history.items:
+        for history in ch['histories']:
+            for item in history['items']:
+                
                 d = {
-                    'key': issue.key,
+                    'key': issue['key'],
                     # author is not always present
-                    'author': history.author.key if 'author' in dir(history) else np.nan,
-                    'date': history.created,
-                    'field': item.field,
-                    'fieldtype': item.fieldtype,
-                    'from': getattr(item, 'from'),
+                    'author': history['author']['key'] if 'author' in history.keys() else np.nan,
+                    'date': history['created'],
+                    'field': item['field'],
+                    'fieldtype': item['fieldtype'],
+                    'from': item['from'],
                     # getattr() must be used since 'from' is a special word in python and it makes item.from don't work
-                    'fromString': item.fromString,
-                    'to': item.to,
-                    'toString': item.toString
+                    'fromString': item['fromString'],
+                    'to': item['to'],
+                    'toString': item['toString']
                 }
 
                 changelog = changelog.append(d, ignore_index=True)
@@ -111,7 +154,7 @@ def get_issues(jira, project='', startdate='', enddate=''):
     """
     Get the issues from JIRA
     :param jira: connection object for the JIRA instance
-    :param project: name of the project
+    :param project: project key
     :param startdate: start date of the period we want to extract
     :param enddate: date date of the period we want to extract
     :return: a list of issue objects (JIRA API)
@@ -137,6 +180,7 @@ def get_issues_for_project (jira, project, startdate='', enddate=''):
     """
     block_size = 1000
     block_num = 0
+    # all issues are stored in this list
     all_issues = []
 
     logger.info('Project name: %s' % (project))
@@ -149,16 +193,34 @@ def get_issues_for_project (jira, project, startdate='', enddate=''):
         start_idx = block_num * block_size
         logger.info('Searching for issues from %d to %d ...' % (start_idx + 1, start_idx + block_size))
 
-        issues = jira.search_issues(jql, start_idx, block_size, expand='changelog')
-        if len(issues) == 0:
+        query = jira.search_issues(jql, start_idx, block_size, expand='changelog', json_result=True)
+
+        if len(query['issues']) == 0:
             # Retrieve issues until there are no more to come
             logger.info('... no issues found')
             break
         block_num += 1
-        logger.info('... %d issues retrieved' % len(issues))
-        for issue in issues:
+        logger.info('... %d issues retrieved' % len(query['issues']))
+		
+        df = pd.DataFrame(query['issues'])
+        if block_num == 1:
+            # first block write the header
+            df.to_csv(project+'-raw.csv', mode='a', encoding='utf-8', header=True, index=False, line_terminator="\n")
+        else:
+            df.to_csv(project+'-raw.csv', mode='a', encoding='utf-8', header=False, index=False, line_terminator="\n")
+
+		# Appending to file 
+        #with open("tmp.json", 'a') as outfile: 
+        #    outfile.write(json.dumps(issues))
+        #    outfile.write(",")
+        #    outfile.close()
+
+        #logger.info('Saved to tmp json file')
+		
+        #for issue in issues:
             # logger.info('%s: %s' % (issue.key, issue.fields.summary))
-            all_issues.append(issue)
+        all_issues.extend(query['issues'])
+
     logger.info('%d issues retrieved in total.' % len(all_issues))
     return all_issues
 
@@ -241,13 +303,13 @@ if __name__ == '__main__':
 
         parser = argparse.ArgumentParser(usage=globals()['__doc__'])
 
-        parser.add_argument("-u", "--username", dest="USERNAME", help="JIRA username", default='')
-        parser.add_argument("-p", "--password", dest="PASSWORD", help="JIRA password", default='')
-        parser.add_argument("-s", "--server", dest="SERVER", required=True, help="URL address to the server")
-        parser.add_argument("--project", dest="PROJECT", help="Name of the JIRA project", default='')
+        parser.add_argument("-u", "--username", dest="USERNAME", required=False, help="JIRA username", default='')
+        parser.add_argument("-p", "--password", dest="PASSWORD", required=False, help="JIRA password", default='')
+        parser.add_argument("-s", "--server", dest="SERVER", required=False, help="URL address to the server")
+        parser.add_argument("--project", dest="PROJECT", required=False, help="Name of the JIRA project", default='')
 
-        parser.add_argument("--issuefile", dest="FILENAME_ISSUES", required=False, default='issues.csv', help="Name of file where the issues will be stored. Default 'issues.csv'")
-        parser.add_argument("--changelogfile", dest="FILENAME_CHANGELOG", required=False, default='changelog.csv', help="Name of file where the changelog will be stored. Default 'changelog.csv'")
+        parser.add_argument("--issuefile", dest="FILENAME_ISSUES", required=False, default='issues.csv.zip', help="Name of file where the issues will be stored. Default 'issues.csv'")
+        parser.add_argument("--changelogfile", dest="FILENAME_CHANGELOG", required=False, default='changelog.csv.zip', help="Name of file where the changelog will be stored. Default 'changelog.csv'")
 
         #parser.add_argument("-t", help="Use this option if you want to retrieve workloads from Tempo")
 
@@ -267,26 +329,32 @@ if __name__ == '__main__':
                             default='False',
                             help="This flag (True or False) determines if the files should be anonymized or not. A list of stardard fields are considered for anonymization.")
 
+        parser.add_argument("--parsefile", dest="PARSEFILE", required=False, help="parse a csv file with issues")
+
         args = parser.parse_args()
 
         # if len(args) < 1:
         #    parser.error('missing argument')
 
-        jira = connect(args.SERVER, args.USERNAME, args.PASSWORD)
+        if (args.PARSEFILE):
+            issues = pd.read_csv(args.PARSEFILE)
+            parse_issues2(issues)
+        else:
+            jira = connect(args.SERVER, args.USERNAME, args.PASSWORD)
 
-        issues = get_issues(jira, args.PROJECT, args.STARTDATE, args.ENDDATE)
-        df, changelog = parse_issues(issues)
+            issues = get_issues(jira, args.PROJECT, args.STARTDATE, args.ENDDATE)
+            df, changelog = parse_issues2(issues)
 
-        # anonymize
-        if args.ANON != 'False':
-            logger.info("Anonymizing...")
-            df, changelog = anonymize(df, changelog)
+            # anonymize
+            if args.ANON != 'False':
+                logger.info("Anonymizing...")
+                df, changelog = anonymize(df, changelog)
 
-        logger.info("Saving issues to file.")
-        df.to_csv(args.FILENAME_ISSUES, encoding='utf-8', header=True, index=False, line_terminator="\n")
+            logger.info("Saving issues to file.")
+            df.to_csv(args.PROJECT + '-' + args.FILENAME_ISSUES, encoding='utf-8', header=True, index=False, line_terminator="\n")
 
-        logger.info("Saving changelog to file.")
-        changelog.to_csv(args.FILENAME_CHANGELOG, encoding='utf-8', header=True, index=False, line_terminator="\n")
+            logger.info("Saving changelog to file.")
+            changelog.to_csv(args.PROJECT + '-' + args.FILENAME_CHANGELOG, encoding='utf-8', header=True, index=False, line_terminator="\n")
 
         logger.info("Done.")
 
