@@ -2,12 +2,11 @@
 """
 SYNOPSIS
 
-    jiraextractor -s JIRA_URL --project PROJECT_NAME [-u,--username] [-p, --password] [--issuefile] [--changelogfile] [--startdate] [--enddate]
+    jiraextractor -s JIRA_URL --project PROJECT_NAME [-u, --username] [-p, --password] [--issuefile] [--changelogfile] [--startdate] [--enddate] [--anonymize=False] [--parsefile] [-b, --blocksize]
 
 DESCRIPTION
 
-    This script will extract data from a jira server instance. The data to extract is related to
-    issues, and the changelog. The optional argument -t allows for extracting records from Tempo plugin.
+    This script will extract data from a jira server instance. The data to extract is related to issues, and the changelog.
 
 EXAMPLES
 
@@ -405,7 +404,7 @@ if __name__ == '__main__':
                             default='False',
                             help="This flag (True or False) determines if the files should be anonymized or not. A list of stardard fields are considered for anonymization.")
 
-        parser.add_argument("--parsefile", dest="PARSEFILE", required=False, help="parse a csv file with issues")
+        parser.add_argument("--parsefile", dest="PARSEFILE", required=False, help="Parse a csv file with issues")
 
         parser.add_argument("-b",
                             "--blocksize",
