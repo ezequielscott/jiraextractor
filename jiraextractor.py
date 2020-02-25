@@ -2,12 +2,11 @@
 """
 SYNOPSIS
 
-    jiraextractor -s JIRA_URL --project PROJECT_NAME [-u,--username] [-p, --password] [--issuefile] [--changelogfile] [--startdate] [--enddate]
+    jiraextractor -s JIRA_URL --project PROJECT_NAME [-u, --username] [-p, --password] [--issuefile] [--changelogfile] [--startdate] [--enddate] [--anonymize=False] [--parsefile] [-b, --blocksize]
 
 DESCRIPTION
 
-    This script will extract data from a jira server instance. The data to extract is related to
-    issues, and the changelog. The optional argument -t allows for extracting records from Tempo plugin.
+    This script will extract data from a jira server instance. The data to extract is related to issues, and the changelog.
 
 EXAMPLES
 
@@ -63,10 +62,12 @@ def connect(url, username='', password=''):
         jira = JIRA(url)
     return jira
 
+
 def parse_issues2(df):
+    start_time = time.time()
 
     logger.info('Parsing changelog...')
-    
+
     df = pd.DataFrame(df)
 
     # remove wrong lines
@@ -94,7 +95,7 @@ def parse_issues2(df):
     # now do the same with the histories
     df2['items_h'] = df2['items'].apply( lambda x : [ pd.io.json.json_normalize(e) for e in x ])
 
-    df2['items_h2'] = df2.apply(lambda x: concat_attrs(x['items_h'], {'key' : x['key'], 'created' : x['created'], 'author' : x['author.key']}), axis=1)
+    df2['items_h2'] = df2.apply(lambda x: concat_attrs(x['items_h'], {'key' : x['key'], 'created' : x['created'], 'author' : x[get_author_key2(x)]}), axis=1)
 
     # second unwrap (it contains all the changelog)
     changelog = pd.concat([df2['items_h2'][i] for i in df2.index], ignore_index=True, sort=False)
@@ -104,8 +105,11 @@ def parse_issues2(df):
     df['fields2'] = df['fields'].apply( lambda e : pd.io.json.json_normalize(e))
     issues = pd.concat([df['fields2'][i] for i in df.index], ignore_index=True, sort=False)
     issues['key'] = df['key']
-    
+
+    logger.info('Elapsed parsing time: {:.2f}s'.format(time.time() - start_time))
+
     return issues, changelog
+
 
 def parse_issues(issues):
     """
@@ -114,12 +118,15 @@ def parse_issues(issues):
     :return: two panda dataframes containing the issues and the changelog
     """
 
-    logger.info('Parsing issues ...')
+    start_time = time.time()
+    logger.info('Parsing %d issues ... ' % len(issues))
+    issues_len = len(issues)
+    print_progress_bar(0, issues_len, 'Progress:', 'Complete', 2, 50)
 
     df = pd.DataFrame()
     changelog = pd.DataFrame()
 
-    for issue in issues:
+    for i, issue in enumerate(issues):
         # get all the issue fields
         d = issue['fields']
         d['key'] = issue['key']
@@ -130,11 +137,10 @@ def parse_issues(issues):
 
         for history in ch['histories']:
             for item in history['items']:
-                
+
                 d = {
                     'key': issue['key'],
-                    # author is not always present
-                    'author': history['author']['key'] if 'author' in history.keys() else np.nan,
+                    'author': get_author_string(history),
                     'date': history['created'],
                     'field': item['field'],
                     'fieldtype': item['fieldtype'],
@@ -147,10 +153,79 @@ def parse_issues(issues):
 
                 changelog = changelog.append(d, ignore_index=True)
 
+        print_progress_bar(i + 1, issues_len, 'Progress:', 'Complete', 2, 50)
+
+    logger.info('Elapsed parsing time: {:.2f}s'.format(time.time() - start_time))
+
     return df, changelog
 
 
-def get_issues(jira, project='', startdate='', enddate=''):
+def get_author_string(history):
+    """
+    Get author string for issue history record
+    @params:
+        history - Required : JIRA history record object
+    """
+    key = get_author_key(history)
+    return np.nan if key is None else history['author'][key]
+
+
+def get_author_key(history):
+    """
+    Get author string value key for issue history record
+    @params:
+        history - Required : JIRA history record object
+    """
+    keys = ['key', 'author.key', 'accountId', 'author.accountId', 'displayName', 'author.displayName']
+
+    for k in keys:
+        if k in history['author']:
+            return k
+
+    return None
+
+
+def get_author_key2(history):
+    """
+    Get author string value key for issue history record (used in parse_issues2())
+    @params:
+        history - Required : history dataframe row
+    """
+    keys = ['author.key', 'author.accountId', 'author.displayName']
+
+    for k in keys:
+        if k in history:
+            return k
+
+    return np.nan
+
+
+def print_progress_bar (iteration, total, prefix = '', suffix = '', decimals = 1, length = 100, fill = '█', print_end = "\r"):
+    """
+    Call in a loop to create terminal progress bar
+    @params:
+        iteration   - Required  : current iteration (Int)
+        total       - Required  : total iterations (Int)
+        prefix      - Optional  : prefix string (Str)
+        suffix      - Optional  : suffix string (Str)
+        decimals    - Optional  : positive number of decimals in percent complete (Int)
+        length      - Optional  : character length of bar (Int)
+        fill        - Optional  : bar fill character (Str)
+        print_end   - Optional  : end character (e.g. "\r", "\r\n") (Str)
+    """
+    if total < 1:
+        return
+
+    percent = ("{0:." + str(decimals) + "f}").format(100 * (iteration / float(total)))
+    filled_length = int(length * iteration // total)
+    bar = fill * filled_length + '-' * (length - filled_length)
+    print('\r%s |%s| %s%% %s' % (prefix, bar, percent, suffix), end = print_end)
+    # Print New Line on Complete
+    if iteration == total:
+        print()
+
+
+def get_issues(jira, project='', startdate='', enddate='', block_size=1000):
     """
     Get the issues from JIRA
     :param jira: connection object for the JIRA instance
@@ -162,25 +237,24 @@ def get_issues(jira, project='', startdate='', enddate=''):
     all_issues = []
 
     if project:
-        return get_issues_for_project(jira, project, startdate, enddate)
+        return get_issues_for_project(jira, project, startdate, enddate, block_size)
     else:
         for p in jira.projects():
             all_issues.extend(get_issues_for_project(jira, p.key, startdate, enddate))
 
     return all_issues
 
-def get_issues_for_project (jira, project, startdate='', enddate=''):
+def get_issues_for_project (jira, project, startdate='', enddate='', block_size=1000):
     """
     Get the issues from JIRA for the specific project name
     :param jira: connection object for the JIRA instance
-    :param project: name of the project
+    :param project: project key
     :param startdate: start date of the period we want to extract
     :param enddate: date date of the period we want to extract
+    :param block_size: size of a block (batch) of issues retrieved at once from JIRA
     :return: a list of issue objects (JIRA API)
     """
-    block_size = 1000
     block_num = 0
-    # all issues are stored in this list
     all_issues = []
 
     logger.info('Project name: %s' % (project))
@@ -201,7 +275,7 @@ def get_issues_for_project (jira, project, startdate='', enddate=''):
             break
         block_num += 1
         logger.info('... %d issues retrieved' % len(query['issues']))
-		
+
         df = pd.DataFrame(query['issues'])
         if block_num == 1:
             # first block write the header
@@ -209,20 +283,21 @@ def get_issues_for_project (jira, project, startdate='', enddate=''):
         else:
             df.to_csv(project+'-raw.csv', mode='a', encoding='utf-8', header=False, index=False, line_terminator="\n")
 
-		# Appending to file 
-        #with open("tmp.json", 'a') as outfile: 
+		# Appending to file
+        #with open("tmp.json", 'a') as outfile:
         #    outfile.write(json.dumps(issues))
         #    outfile.write(",")
         #    outfile.close()
 
         #logger.info('Saved to tmp json file')
-		
+
         #for issue in issues:
             # logger.info('%s: %s' % (issue.key, issue.fields.summary))
         all_issues.extend(query['issues'])
 
     logger.info('%d issues retrieved in total.' % len(all_issues))
     return all_issues
+
 
 def get_changelog(issues):
     """
@@ -306,10 +381,10 @@ if __name__ == '__main__':
         parser.add_argument("-u", "--username", dest="USERNAME", required=False, help="JIRA username", default='')
         parser.add_argument("-p", "--password", dest="PASSWORD", required=False, help="JIRA password", default='')
         parser.add_argument("-s", "--server", dest="SERVER", required=False, help="URL address to the server")
-        parser.add_argument("--project", dest="PROJECT", required=False, help="Name of the JIRA project", default='')
+        parser.add_argument("--project", dest="PROJECT", required=False, help="JIRA project key", default='')
 
-        parser.add_argument("--issuefile", dest="FILENAME_ISSUES", required=False, default='issues.csv.zip', help="Name of file where the issues will be stored. Default 'issues.csv'")
-        parser.add_argument("--changelogfile", dest="FILENAME_CHANGELOG", required=False, default='changelog.csv.zip', help="Name of file where the changelog will be stored. Default 'changelog.csv'")
+        parser.add_argument("--issuefile", dest="FILENAME_ISSUES", required=False, default='issues.csv', help="Name of file where the issues will be stored. Default 'issues.csv'")
+        parser.add_argument("--changelogfile", dest="FILENAME_CHANGELOG", required=False, default='changelog.csv', help="Name of file where the changelog will be stored. Default 'changelog.csv'")
 
         #parser.add_argument("-t", help="Use this option if you want to retrieve workloads from Tempo")
 
@@ -329,26 +404,34 @@ if __name__ == '__main__':
                             default='False',
                             help="This flag (True or False) determines if the files should be anonymized or not. A list of stardard fields are considered for anonymization.")
 
-        parser.add_argument("--parsefile", dest="PARSEFILE", required=False, help="parse a csv file with issues")
+        parser.add_argument("--parsefile", dest="PARSEFILE", required=False, help="Parse a csv file with issues")
+
+        parser.add_argument("-b",
+                            "--blocksize",
+                            dest="BLOCK_SIZE",
+                            help="The size of a block (batch) of issues retrieved at once from JIRA",
+                            required=False,
+                            default=1000)
 
         args = parser.parse_args()
 
-        # if len(args) < 1:
-        #    parser.error('missing argument')
+        start_time = time.time()
 
         if (args.PARSEFILE):
             issues = pd.read_csv(args.PARSEFILE)
-            parse_issues2(issues)
+            parse_issues2(issues)    # or parse_issues()
         else:
             jira = connect(args.SERVER, args.USERNAME, args.PASSWORD)
 
-            issues = get_issues(jira, args.PROJECT, args.STARTDATE, args.ENDDATE)
-            df, changelog = parse_issues2(issues)
+            issues = get_issues(jira, args.PROJECT, args.STARTDATE, args.ENDDATE, int(args.BLOCK_SIZE))
+            df, changelog = parse_issues2(issues)    # or parse_issues()
 
             # anonymize
             if args.ANON != 'False':
                 logger.info("Anonymizing...")
                 df, changelog = anonymize(df, changelog)
+
+            logger.info('Total elapsed time: {:.2f}s'.format(time.time() - start_time))
 
             logger.info("Saving issues to file.")
             df.to_csv(args.PROJECT + '-' + args.FILENAME_ISSUES, encoding='utf-8', header=True, index=False, line_terminator="\n")

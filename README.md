@@ -10,12 +10,12 @@ First, it is a good idea to create a virtual environment for the dependencies. h
 Then, install all the dependencies.
 
    `pip install -r requirements.txt`
-   
+
 The JIRA Python API library eases the use of the JIRA REST API from Python and it has been used in production for years. See the documentation for full details. http://jira.readthedocs.io/en/latest/
 
 ## Usage
 
-`jiraextractor -s JIRA_URL --project PROJECT_NAME [-u,--username] [-p, --password] [--issuefile] [--changelogfile] [--startdate] [--enddate] [--anonymize=False]`
+`jiraextractor -s JIRA_URL --project PROJECT_NAME [-u, --username] [-p, --password] [--issuefile] [--changelogfile] [--startdate] [--enddate] [--anonymize=False] [--parsefile] [-b, --blocksize]`
 
 This example extracts all the issues and the changelog of the Spring project XD from 18-Feb-2014 to 20-Feb-2014
 
