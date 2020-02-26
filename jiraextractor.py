@@ -332,7 +332,7 @@ def get_changelog(issues):
     return changelog
 
 
-def anonymize(df, changelog, fields_to_anonymize=["reporter", "creator", "assignee"]):
+def anonymize(df, changelog, fields_to_anonymize=["reporter.key", "creator.key", "assignee.key"]):
     """
     Process the dataframes with issues and changelog and make a given list of fields anonymous.
     :param df: a dataframe containing JIRA issues
@@ -340,32 +340,34 @@ def anonymize(df, changelog, fields_to_anonymize=["reporter", "creator", "assign
     :param fields_to_anonymize: a list of strings indicating the fields that must be anonymized
     :return: two dataframes (issues, changelog) annonymized
     """
-    df['creator'] = df['creator'].astype(str)
-    df['assignee'] = df['assignee'].astype(str)
-    df['reporter'] = df['reporter'].astype(str)
+    # df['creator'] = df['creator'].astype(str)
+    # df['assignee'] = df['assignee'].astype(str)
+    # df['reporter'] = df['reporter'].astype(str)
 
-    df['creator'] = df['creator'].apply(lambda x : np.nan if x is None else ast.literal_eval(x))
-    df['assignee'] = df['assignee'].apply(lambda x : np.nan if x is None else ast.literal_eval(x))
-    df['reporter'] = df['reporter'].apply(lambda x : np.nan if x is None else ast.literal_eval(x))
+    # df['creator'] = df['creator'].apply(lambda x : np.nan if x is None else ast.literal_eval(x))
+    # df['assignee'] = df['assignee'].apply(lambda x : np.nan if x is None else ast.literal_eval(x))
+    # df['reporter'] = df['reporter'].apply(lambda x : np.nan if x is None else ast.literal_eval(x))
 
-    df['creator'] =  df['creator'].apply(lambda x: np.nan if x is None else x['key'])
-    df['assignee'] = df['assignee'].apply(lambda x: np.nan if x is None else x['key'])
-    df['reporter'] = df['reporter'].apply(lambda x: np.nan if x is None else x['key'])
+    # df['creator'] =  df['creator'].apply(lambda x: np.nan if x is None else x['key'])
+    # df['assignee'] = df['assignee'].apply(lambda x: np.nan if x is None else x['key'])
+    # df['reporter'] = df['reporter'].apply(lambda x: np.nan if x is None else x['key'])
 
+    # The following code will anonymize the default user fields
+    DEFAULT_USER_FIELDS = ["reporter.key", "creator.key", "assignee.key"]
     jirausers = []
-    for field in fields_to_anonymize:
+    for field in DEFAULT_USER_FIELDS:
         if field in df.columns:
-            jirausers = jirausers + df[field].values.tolist()
+            jirausers = jirausers + df[field].dropna().values.tolist()
 
     jirausers = pd.unique(jirausers)
 
     to_replace = [ 'U' + str(i+1) for i in range(len(jirausers)) ]
 
     jirauserkeys = dict(zip(jirausers, to_replace))
-
-    for field in fields_to_anonymize:
+ 
+    for field in DEFAULT_USER_FIELDS:
         if field in df.columns:
-            df[field] = df[field].map(jirauserkeys)
+            df[field] = df[field].map(jirauserkeys, na_action='ignore')
 
     changelog['author'] = changelog['author'].map(jirauserkeys)
 
@@ -404,7 +406,7 @@ if __name__ == '__main__':
                             default='False',
                             help="This flag (True or False) determines if the files should be anonymized or not. A list of stardard fields are considered for anonymization.")
 
-        parser.add_argument("--parsefile", dest="PARSEFILE", required=False, help="Parse a csv file with issues")
+        parser.add_argument("--parsefile", dest="PARSEFILE", required=False, help="Parse a csv file with issues (file ending with -raw)")
 
         parser.add_argument("-b",
                             "--blocksize",
@@ -427,7 +429,7 @@ if __name__ == '__main__':
             df, changelog = parse_issues2(issues)    # or parse_issues()
 
             # anonymize
-            if args.ANON != 'False':
+            if (args.ANON):
                 logger.info("Anonymizing...")
                 df, changelog = anonymize(df, changelog)
 
