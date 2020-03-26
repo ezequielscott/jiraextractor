@@ -91,7 +91,7 @@ def parse_issues2(df):
 
     # first unwrap
     df2 = pd.concat([df['ch1'][i] for i in df.index], ignore_index=True, sort=False)
-
+        
     # now do the same with the histories
     df2['items_h'] = df2['items'].apply( lambda x : [ pd.io.json.json_normalize(e) for e in x ])
 
@@ -100,11 +100,17 @@ def parse_issues2(df):
     # second unwrap (it contains all the changelog)
     changelog = pd.concat([df2['items_h2'][i] for i in df2.index], ignore_index=True, sort=False)
 
+    # add the field project
+    changelog['project'] = changelog['key'].apply(lambda x : x.split('-')[0])
+
     logger.info('Parsing issue list...')
 
     df['fields2'] = df['fields'].apply( lambda e : pd.io.json.json_normalize(e))
     issues = pd.concat([df['fields2'][i] for i in df.index], ignore_index=True, sort=False)
     issues['key'] = df['key']
+
+    # add the field project
+    issues['project'] = issues['key'].apply(lambda x : x.split('-')[0])
 
     logger.info('Elapsed parsing time: {:.2f}s'.format(time.time() - start_time))
 
@@ -240,7 +246,10 @@ def get_issues(jira, project='', startdate='', enddate='', block_size=1000):
         return get_issues_for_project(jira, project, startdate, enddate, block_size)
     else:
         for p in jira.projects():
-            all_issues.extend(get_issues_for_project(jira, p.key, startdate, enddate))
+            try:
+                all_issues.extend(get_issues_for_project(jira, p.key, startdate, enddate))
+            except Exception as e:
+                logger.error('Error getting project with key %s: %s' % (p, e))
 
     return all_issues
 
@@ -421,7 +430,7 @@ if __name__ == '__main__':
 
         if (args.PARSEFILE):
             issues = pd.read_csv(args.PARSEFILE)
-            parse_issues2(issues)    # or parse_issues()
+            df, changelog = parse_issues2(issues)    # or parse_issues()
         else:
             jira = connect(args.SERVER, args.USERNAME, args.PASSWORD)
 
@@ -429,17 +438,22 @@ if __name__ == '__main__':
             df, changelog = parse_issues2(issues)    # or parse_issues()
 
             # anonymize
-            if (args.ANON):
+            if (args.ANON != 'False'):
                 logger.info("Anonymizing...")
                 df, changelog = anonymize(df, changelog)
 
-            logger.info('Total elapsed time: {:.2f}s'.format(time.time() - start_time))
+        logger.info('Total elapsed time: {:.2f}s'.format(time.time() - start_time))
 
-            logger.info("Saving issues to file.")
-            df.to_csv(args.PROJECT + '-' + args.FILENAME_ISSUES, encoding='utf-8', header=True, index=False, line_terminator="\n")
+        # parse the server url to get build the filename
+        from urllib.parse import urlparse
+        o = urlparse(args.SERVER)
+        DOMAIN = o.netloc.split(':')[0]
 
-            logger.info("Saving changelog to file.")
-            changelog.to_csv(args.PROJECT + '-' + args.FILENAME_CHANGELOG, encoding='utf-8', header=True, index=False, line_terminator="\n")
+        logger.info("Saving issues to file.")
+        df.to_csv(DOMAIN + '-' + args.PROJECT + '-' + args.FILENAME_ISSUES, encoding='utf-8', header=True, index=False, line_terminator="\n")
+
+        logger.info("Saving changelog to file.")
+        changelog.to_csv(DOMAIN + '-' + args.PROJECT + '-' + args.FILENAME_CHANGELOG, encoding='utf-8', header=True, index=False, line_terminator="\n")
 
         logger.info("Done.")
 
