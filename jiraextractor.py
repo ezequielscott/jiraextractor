@@ -103,14 +103,25 @@ def parse_issues2(df):
     # add the field project
     changelog['project'] = changelog['key'].apply(lambda x : x.split('-')[0])
 
+    #############
     logger.info('Parsing issue list...')
 
-    df['fields2'] = df['fields'].apply( lambda e : pd.io.json.json_normalize(e))
-    issues = pd.concat([df['fields2'][i] for i in df.index], ignore_index=True, sort=False)
-    issues['key'] = df['key']
+    # create a new field having dics where k=field_name and v=value
+    df['fields2'] = df['fields'].apply(lambda x : ast.literal_eval(x) if type(x) == str else x)
+
+    # get the new columns (fields) that we will concatenate to the original df
+    new_columns = df['fields2'].apply(pd.Series)
+
+    assert df.shape[0] == new_columns.shape[0]
+    # concat
+    issues = pd.concat([df['key'], new_columns], axis=1)
+
+    #df['fields2'] = df['fields'].apply( lambda e : pd.io.json.json_normalize(e))
+    #issues = pd.concat([df['fields2'][i] for i in df.index], ignore_index=True, sort=False)
+    #issues['key'] = df['key']
 
     # add the field project
-    issues['project'] = issues['key'].apply(lambda x : x.split('-')[0])
+    issues['project'] = issues['key'].apply(lambda x : x.split('-')[0]) # extract the project key
 
     logger.info('Elapsed parsing time: {:.2f}s'.format(time.time() - start_time))
 
@@ -449,10 +460,10 @@ if __name__ == '__main__':
         o = urlparse(args.SERVER)
         DOMAIN = o.netloc.split(':')[0]
 
-        logger.info("Saving issues to file.")
+        logger.info("Saving issues to file..")
         df.to_csv(DOMAIN + '-' + args.PROJECT + '-' + args.FILENAME_ISSUES, encoding='utf-8', header=True, index=False, line_terminator="\n")
 
-        logger.info("Saving changelog to file.")
+        logger.info("Saving the changelog to file..")
         changelog.to_csv(DOMAIN + '-' + args.PROJECT + '-' + args.FILENAME_CHANGELOG, encoding='utf-8', header=True, index=False, line_terminator="\n")
 
         logger.info("Done.")
