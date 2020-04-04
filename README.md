@@ -13,10 +13,12 @@ Then, install all the dependencies.
 
 The JIRA Python API library eases the use of the JIRA REST API from Python and it has been used in production for years. See the documentation for full details. http://jira.readthedocs.io/en/latest/
 
-## Usage
+## Script usage
 
-`jiraextractor -s JIRA_URL --project PROJECT_NAME [-u, --username] [-p, --password] [--issuefile] [--changelogfile] [--startdate] [--enddate] [--anonymize=False] [--parsefile] [-b, --blocksize]`
+`jiraextractor -s JIRA_URL --project PROJECT_KEY [-u, --username] [-p, --password] [--issuefile] [--changelogfile] [--startdate] [--enddate] [--anonymize=False] [--parsefile] [-b, --blocksize]`
 
 This example extracts all the issues and the changelog of the Spring project XD from 18-Feb-2014 to 20-Feb-2014
 
-`python jiraextractor.py -s https://jira.spring.io --project XD --startdate 2014-02-18 --enddate 2014-02-20`
+## Utils
+
+If something goes wrong, it is possible to parse the temporal file *-raw.csv with the script `parse-raw-file.csv`

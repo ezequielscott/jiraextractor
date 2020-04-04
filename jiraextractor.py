@@ -77,14 +77,18 @@ def parse_issues2(df):
 
     df['ch0'] = df['ch'].apply( lambda x : [ pd.io.json.json_normalize(e) for e in x ])
 
-    # concat attrs stored in a dictionary
+    # attrs is dictionary
     def concat_attrs(lst, attrs):
         if len(lst) != 0:
-            pdf = pd.concat(lst, sort=False)
+            if isinstance(lst, dict):
+                pdf = pd.concat(lst, sort=False)
+            else:  #probably a list of dfs
+                pdf = pd.concat([x for x in lst])
+                
             for k in attrs:
                 pdf[k] = attrs[k]
         else:
-            pdf = None
+            pdf = pd.DataFrame()
         return pdf
 
     df['ch1'] = df.apply(lambda x: concat_attrs(x['ch0'], {'key' : x['key']}), axis=1)
@@ -105,20 +109,16 @@ def parse_issues2(df):
 
     #############
     logger.info('Parsing issue list...')
-
+    
     # create a new field having dics where k=field_name and v=value
     df['fields2'] = df['fields'].apply(lambda x : ast.literal_eval(x) if type(x) == str else x)
 
     # get the new columns (fields) that we will concatenate to the original df
-    new_columns = df['fields2'].apply(pd.Series)
+    df4 = df['fields2'].apply(lambda x : pd.io.json.json_normalize(x))
 
-    assert df.shape[0] == new_columns.shape[0]
     # concat
-    issues = pd.concat([df['key'], new_columns], axis=1)
-
-    #df['fields2'] = df['fields'].apply( lambda e : pd.io.json.json_normalize(e))
-    #issues = pd.concat([df['fields2'][i] for i in df.index], ignore_index=True, sort=False)
-    #issues['key'] = df['key']
+    issues = pd.concat([df4[i] for i in df4.index], ignore_index=True, sort=False, axis=0)
+    issues['key'] = df['key']
 
     # add the field project
     issues['project'] = issues['key'].apply(lambda x : x.split('-')[0]) # extract the project key
@@ -299,9 +299,9 @@ def get_issues_for_project (jira, project, startdate='', enddate='', block_size=
         df = pd.DataFrame(query['issues'])
         if block_num == 1:
             # first block write the header
-            df.to_csv(project+'-raw.csv', mode='a', encoding='utf-8', header=True, index=False, line_terminator="\n")
+            df.to_csv(project.replace('"', '') +'-raw.csv', mode='a', encoding='utf-8', header=True, index=False, line_terminator="\n")
         else:
-            df.to_csv(project+'-raw.csv', mode='a', encoding='utf-8', header=False, index=False, line_terminator="\n")
+            df.to_csv(project.replace('"', '') +'-raw.csv', mode='a', encoding='utf-8', header=False, index=False, line_terminator="\n")
 
 		# Appending to file
         #with open("tmp.json", 'a') as outfile:
@@ -461,20 +461,22 @@ if __name__ == '__main__':
         DOMAIN = o.netloc.split(':')[0]
 
         logger.info("Saving issues to file..")
-        df.to_csv(DOMAIN + '-' + args.PROJECT + '-' + args.FILENAME_ISSUES, encoding='utf-8', header=True, index=False, line_terminator="\n")
+        df.to_csv(DOMAIN + '-' + args.PROJECT.replace('"', '') + '-' + args.FILENAME_ISSUES, encoding='utf-8', header=True, index=False, line_terminator="\n")
 
         logger.info("Saving the changelog to file..")
-        changelog.to_csv(DOMAIN + '-' + args.PROJECT + '-' + args.FILENAME_CHANGELOG, encoding='utf-8', header=True, index=False, line_terminator="\n")
+        changelog.to_csv(DOMAIN + '-' + args.PROJECT.replace('"', '') + '-' + args.FILENAME_CHANGELOG, encoding='utf-8', header=True, index=False, line_terminator="\n")
 
         logger.info("Done.")
 
         sys.exit(0)
     except KeyboardInterrupt as e:  # Ctrl-C
+        logging.warning('Interrupted by the user.')
         raise e
     except SystemExit as e:  # sys.exit()
+        logging.warning('System exit.')
         raise e
     except Exception as e:
-        print ('ERROR, UNEXPECTED EXCEPTION')
-        print (str(e))
+        logger.error("Something went wrong and I didn\'t think about it. Please report the bug https://github.com/ezequielscott/jiraextractor/issues")
+        logger.error(str(e))
         traceback.print_exc()
         os._exit(1)
