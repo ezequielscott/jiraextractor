@@ -20,7 +20,7 @@ AUTHOR
 
 VERSION
 
-    $1.0$
+    $1.0.1$
 """
 
 import sys, os, traceback, argparse
@@ -34,6 +34,7 @@ import pandas as pd
 import numpy as np
 import logging
 import json
+from tqdm import tqdm
 
 # from pexpect import run, spawn
 
@@ -67,61 +68,73 @@ def parse_issues2(df):
     start_time = time.time()
 
     logger.info('Parsing changelog...')
+    with tqdm(total=8) as pbar:
+        df = pd.DataFrame(df)
+        pbar.set_description('Parsing changelog...')
+        # remove wrong lines
+        df = df[df['changelog']!='changelog']
 
-    df = pd.DataFrame(df)
+        df['ch'] = df['changelog'].apply(lambda x : x['histories'])
 
-    # remove wrong lines
-    df = df[df['changelog']!='changelog']
-
-    df['ch'] = df['changelog'].apply(lambda x : x['histories'])
-
-    df['ch0'] = df['ch'].apply( lambda x : [ pd.io.json.json_normalize(e) for e in x ])
-
-    # attrs is dictionary
-    def concat_attrs(lst, attrs):
-        if len(lst) != 0:
-            if isinstance(lst, dict):
-                pdf = pd.concat(lst, sort=False)
-            else:  #probably a list of dfs
-                pdf = pd.concat([x for x in lst])
-                
-            for k in attrs:
-                pdf[k] = attrs[k]
-        else:
-            pdf = pd.DataFrame()
-        return pdf
-
-    df['ch1'] = df.apply(lambda x: concat_attrs(x['ch0'], {'key' : x['key']}), axis=1)
-
-    # first unwrap
-    df2 = pd.concat([df['ch1'][i] for i in df.index], ignore_index=True, sort=False)
+        pbar.update(1)
         
-    # now do the same with the histories
-    df2['items_h'] = df2['items'].apply( lambda x : [ pd.io.json.json_normalize(e) for e in x ])
+        df['ch0'] = df['ch'].apply( lambda x : [ pd.io.json.json_normalize(e) for e in x ])
+        pbar.update(1)
 
-    df2['items_h2'] = df2.apply(lambda x: concat_attrs(x['items_h'], {'key' : x['key'], 'created' : x['created'], 'author' : x[get_author_key2(x)]}), axis=1)
+        # attrs is dictionary
+        def concat_attrs(lst, attrs):
+            if len(lst) != 0:
+                if isinstance(lst, dict):
+                    pdf = pd.concat(lst, sort=False)
+                else:  #probably a list of dfs
+                    pdf = pd.concat([x for x in lst], sort=False)
+                    
+                for k in attrs:
+                    pdf[k] = attrs[k]
+            else:
+                pdf = pd.DataFrame()
+            return pdf
 
-    # second unwrap (it contains all the changelog)
-    changelog = pd.concat([df2['items_h2'][i] for i in df2.index], ignore_index=True, sort=False)
+        df['ch1'] = df.apply(lambda x: concat_attrs(x['ch0'], {'key' : x['key']}), axis=1)
+        pbar.update(1)
 
-    # add the field project
-    changelog['project'] = changelog['key'].apply(lambda x : x.split('-')[0])
+        # first unwrap
+        df2 = pd.concat([df['ch1'][i] for i in df.index], ignore_index=True, sort=False)
+        pbar.update(1)
+
+        # now do the same with the histories
+        df2['items_h'] = df2['items'].apply( lambda x : [ pd.io.json.json_normalize(e) for e in x ])
+        pbar.update(1)
+
+        df2['items_h2'] = df2.apply(lambda x: concat_attrs(x['items_h'], {'key' : x['key'], 'created' : x['created'], 'author' : x[get_author_key2(x)]}), axis=1)
+        pbar.update(1)
+
+        # second unwrap (it contains all the changelog)
+        changelog = pd.concat([df2['items_h2'][i] for i in df2.index], ignore_index=True, sort=False)
+        pbar.update(1)
+
+        # add the field project
+        changelog['project'] = changelog['key'].apply(lambda x : x.split('-')[0])
+        pbar.update(1)
 
     #############
     logger.info('Parsing issue list...')
     
-    # create a new field having dics where k=field_name and v=value
-    df['fields2'] = df['fields'].apply(lambda x : ast.literal_eval(x) if type(x) == str else x)
-
-    # get the new columns (fields) that we will concatenate to the original df
-    df4 = df['fields2'].apply(lambda x : pd.io.json.json_normalize(x))
-
-    # concat
-    issues = pd.concat([df4[i] for i in df4.index], ignore_index=True, sort=False, axis=0)
-    issues['key'] = df['key']
-
-    # add the field project
-    issues['project'] = issues['key'].apply(lambda x : x.split('-')[0]) # extract the project key
+    with tqdm(total=4) as pbar:
+        pbar.set_description('Parsing issues...')
+        # create a new field having dics where k=field_name and v=value
+        df['fields2'] = df['fields'].apply(lambda x : ast.literal_eval(x) if type(x) == str else x)
+        pbar.update(1)
+        # get the new columns (fields) that we will concatenate to the original df
+        df4 = df['fields2'].apply(lambda x : pd.io.json.json_normalize(x))
+        pbar.update(1)
+        # concat
+        issues = pd.concat([df4[i] for i in df4.index], ignore_index=True, sort=False, axis=0)
+        issues['key'] = df['key']
+        pbar.update(1)
+        # add the field project
+        issues['project'] = issues['key'].apply(lambda x : x.split('-')[0]) # extract the project key
+        pbar.update(1)
 
     logger.info('Elapsed parsing time: {:.2f}s'.format(time.time() - start_time))
 
@@ -249,8 +262,9 @@ def get_issues(jira, project='', startdate='', enddate='', block_size=1000):
     :param project: project key
     :param startdate: start date of the period we want to extract
     :param enddate: date date of the period we want to extract
+    :param blocksize: the blocksize in case you know it
     :return: a list of issue objects (JIRA API)
-    """
+    """  
     all_issues = []
 
     if project:
@@ -258,7 +272,7 @@ def get_issues(jira, project='', startdate='', enddate='', block_size=1000):
     else:
         for p in jira.projects():
             try:
-                all_issues.extend(get_issues_for_project(jira, p.key, startdate, enddate))
+                all_issues.extend(get_issues_for_project(jira, p.key, startdate, enddate, block_size))
             except Exception as e:
                 logger.error('Error getting project with key %s: %s' % (p, e))
 
@@ -279,41 +293,55 @@ def get_issues_for_project (jira, project, startdate='', enddate='', block_size=
 
     logger.info('Project name: %s' % (project))
 
+    # infer the blocksize
+
     jql = 'project={0}'.format(project)
     if startdate and enddate:
         jql = 'project=\'{0}\' and created >= {1} and created <= {2}'.format(project, startdate, enddate)
 
-    while True:
-        start_idx = block_num * block_size
-        logger.info('Searching for issues from %d to %d ...' % (start_idx + 1, start_idx + block_size))
+    with tqdm() as pbar:
+        while True:
+            start_idx = block_num * block_size
+            #logger.info('Searching for issues from %d to %d ...' % (start_idx + 1, start_idx + block_size))
+            pbar.set_description('Collecting issues from %d to %d ...' % (start_idx + 1, start_idx + block_size))
+            query = jira.search_issues(jql, start_idx, block_size, expand='changelog', json_result=True)
 
-        query = jira.search_issues(jql, start_idx, block_size, expand='changelog', json_result=True)
+            if block_num == 0:
+                pbar.reset(total=query['total'])
 
-        if len(query['issues']) == 0:
-            # Retrieve issues until there are no more to come
-            logger.info('... no issues found')
-            break
-        block_num += 1
-        logger.info('... %d issues retrieved' % len(query['issues']))
+            if len(query['issues']) == 0:
+                # Retrieve issues until there are no more to come
+                #logger.info('... no issues found')
+                break
+            else:
+                # adjust the blocksize in case it is not 1000
+                if block_num == 0 and len(query['issues']) != 1000:
+                    block_size = len(query['issues'])
 
-        df = pd.DataFrame(query['issues'])
-        if block_num == 1:
-            # first block write the header
-            df.to_csv(project.replace('"', '') +'-raw.csv', mode='a', encoding='utf-8', header=True, index=False, line_terminator="\n")
-        else:
-            df.to_csv(project.replace('"', '') +'-raw.csv', mode='a', encoding='utf-8', header=False, index=False, line_terminator="\n")
+            block_num += 1
 
-		# Appending to file
-        #with open("tmp.json", 'a') as outfile:
-        #    outfile.write(json.dumps(issues))
-        #    outfile.write(",")
-        #    outfile.close()
+            df = pd.DataFrame(query['issues'])
 
-        #logger.info('Saved to tmp json file')
+            pbar.update(block_size)
+            #logger.info("... {:} new issues retrieved (total retrieved = {:.0%})".format(len(query['issues']), (start_idx + block_size)/query['total'] ) )
+           
+            if block_num == 1:
+                # first block write the header
+                df.to_csv(project.replace('"', '') +'-raw.csv', mode='a', encoding='utf-8', header=True, index=False, line_terminator="\n")
+            else:
+                df.to_csv(project.replace('"', '') +'-raw.csv', mode='a', encoding='utf-8', header=False, index=False, line_terminator="\n")
 
-        #for issue in issues:
-            # logger.info('%s: %s' % (issue.key, issue.fields.summary))
-        all_issues.extend(query['issues'])
+            # Appending to file
+            #with open("tmp.json", 'a') as outfile:
+            #    outfile.write(json.dumps(issues))
+            #    outfile.write(",")
+            #    outfile.close()
+
+            #logger.info('Saved to tmp json file')
+
+            #for issue in issues:
+                # logger.info('%s: %s' % (issue.key, issue.fields.summary))
+            all_issues.extend(query['issues'])
 
     logger.info('%d issues retrieved in total.' % len(all_issues))
     return all_issues
