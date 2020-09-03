@@ -5,11 +5,13 @@ Jiraextractor is a simple python script that connects with a JIRA server instanc
 
 This script works with Python 3.X.
 
-First, it is a good idea to create a virtual environment for the dependencies. https://docs.python.org/3/library/venv.html
-
-Then, install all the dependencies.
-
-   `pip install -r requirements.txt`
+1. create a virtual environment (https://docs.python.org/3/library/venv.html)
+   * `$ python -m venv env`
+2. install all the dependencies 
+   * `$ pip install -r requirements.txt`
+3. activate the virtual environment
+   * `$ ./env/Scripts/activate.bat` (Win)
+   * `$ source tutorial-env/bin/activate` (Linux, MacOS) 
 
 The JIRA Python API library eases the use of the JIRA REST API from Python and it has been used in production for years. See the documentation for full details. http://jira.readthedocs.io/en/latest/
 
@@ -17,15 +19,18 @@ The JIRA Python API library eases the use of the JIRA REST API from Python and i
 
 `jiraextractor -s JIRA_URL --project PROJECT_KEY [-u, --username] [-p, --password] [--issuefile] [--changelogfile] [--startdate] [--enddate] [--anonymize=False] [--parsefile] [-b, --blocksize]`
 
-### Example:
+## Example:
 
-1. create a virtual environment ``$ python -m venv env`
-2. activate the virtual environment
+1. create a virtual environment 
+   * `$ python -m venv env`
+2. install all the dependencies 
+   * `$ pip install -r requirements.txt`
+3. activate the virtual environment
    * `$ ./env/Scripts/activate.bat` (Win)
    * `$ source tutorial-env/bin/activate` (Linux, MacOS) 
-3. extract the data. This example extracts all the issues and the changelog of the Spring project XD from 18-Feb-2014 to 20-Feb-2014 
+4. extract the data. This example extracts all the issues and the changelog of the Spring project XD from 18-Feb-2014 to 20-Feb-2014 
    * `$ python jiraextractor.py -s https://jira.spring.io/ --project XD --startdate "2014-02-18" --enddate "2014-02-20"`
-4. As a result, three files are created:
+5. As a result, three files are created:
    * jira.spring.io-XD-changelog.csv : each row represents a change made on a issue report
    * jira.spring.io-XD-issues.csv : each row represents an issue report
    * XD-raw : contains issue report data without any pre-processing step (for example, the changelog is embedded in a field using json)
