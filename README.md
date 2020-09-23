@@ -7,12 +7,12 @@ This script works with Python 3.X.
 
 1. create a virtual environment (https://docs.python.org/3/library/venv.html)
    * `$ python -m venv env`
-2. install all the dependencies 
+2. activate the virtual environment
+   * `$ .\env\Scripts\activate.bat` (Win)
+   * `$ source env/bin/activate` (Linux, MacOS) 
+3. install all the dependencies 
    * `$ pip install -r requirements.txt`
-3. activate the virtual environment
-   * `$ ./env/Scripts/activate.bat` (Win)
-   * `$ source tutorial-env/bin/activate` (Linux, MacOS) 
-
+   
 The JIRA Python API library eases the use of the JIRA REST API from Python and it has been used in production for years. See the documentation for full details. http://jira.readthedocs.io/en/latest/
 
 ## Script usage
@@ -21,13 +21,6 @@ The JIRA Python API library eases the use of the JIRA REST API from Python and i
 
 ## Example:
 
-1. create a virtual environment 
-   * `$ python -m venv env`
-2. install all the dependencies 
-   * `$ pip install -r requirements.txt`
-3. activate the virtual environment
-   * `$ ./env/Scripts/activate.bat` (Win)
-   * `$ source tutorial-env/bin/activate` (Linux, MacOS) 
 4. extract the data. This example extracts all the issues and the changelog of the Spring project XD from 18-Feb-2014 to 20-Feb-2014 
    * `$ python jiraextractor.py -s https://jira.spring.io/ --project XD --startdate "2014-02-18" --enddate "2014-02-20"`
 5. As a result, three files are created:
